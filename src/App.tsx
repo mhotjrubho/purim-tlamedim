@@ -89,6 +89,7 @@ export default function App() {
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
   const [collectionForm, setCollectionForm] = useState({ student_id: '', year_id: '', amount: '', effort: false });
+  const [studentSearch, setStudentSearch] = useState('');
   const [yearForm, setYearForm] = useState({ hebrew_year: '' });
   const [classForm, setClassForm] = useState({ name: '' });
   const [thresholdForm, setThresholdForm] = useState({ min_amount: '', color: '#4f46e5' });
@@ -393,6 +394,7 @@ export default function App() {
       if (res.ok) {
         setStatus({ type: 'success', message: 'הגבייה נרשמה בהצלחה' });
         setCollectionForm({ student_id: '', year_id: '', amount: '', effort: false });
+        setStudentSearch('');
         fetchData();
         setTimeout(() => setStatus(null), 3000);
       } else {
@@ -633,7 +635,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans transition-colors duration-300" dir="rtl">
+    <div className={`min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans transition-colors duration-300 ${darkMode ? 'dark' : ''}`} dir="rtl">
       {/* Header */}
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -895,6 +897,16 @@ export default function App() {
                             <td className="px-6 py-4">
                               <div className="flex items-center justify-center gap-2">
                                 <button 
+                                  onClick={() => {
+                                    setCollectionForm({ ...collectionForm, student_id: s.id });
+                                    setActiveTab('record_collection');
+                                  }}
+                                  className="p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-colors"
+                                  title="הוסף גבייה"
+                                >
+                                  <PlusCircle className="w-4 h-4" />
+                                </button>
+                                <button 
                                   onClick={() => setEditingStudent(s)}
                                   className="p-2 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors"
                                   title="ערוך"
@@ -1021,17 +1033,33 @@ export default function App() {
 
                   <form onSubmit={handleRecordCollection} className="space-y-6">
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-2">בחר תלמיד</label>
+                      <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">חפש ובחר תלמיד</label>
+                      <div className="relative mb-2">
+                        <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input 
+                          type="text"
+                          placeholder="חפש לפי שם או ת.ז..."
+                          className="w-full pr-10 pl-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-sm"
+                          value={studentSearch}
+                          onChange={(e) => setStudentSearch(e.target.value)}
+                        />
+                      </div>
                       <select 
                         required
-                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all appearance-none"
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all appearance-none text-slate-800 dark:text-slate-200"
                         value={collectionForm.student_id}
                         onChange={(e) => setCollectionForm({...collectionForm, student_id: e.target.value})}
                       >
                         <option value="">בחר תלמיד מהרשימה...</option>
-                        {students.map(s => (
-                          <option key={s.id} value={s.id}>{s.first_name} {s.last_name} ({s.class_name})</option>
-                        ))}
+                        {students
+                          .filter(s => 
+                            `${s.first_name} ${s.last_name}`.includes(studentSearch) || 
+                            s.id.includes(studentSearch)
+                          )
+                          .map(s => (
+                            <option key={s.id} value={s.id}>{s.first_name} {s.last_name} ({s.class_name}) - {s.id}</option>
+                          ))
+                        }
                       </select>
                     </div>
 
@@ -1060,7 +1088,7 @@ export default function App() {
                       />
                     </div>
 
-                    <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
                       <input 
                         type="checkbox" 
                         id="effort"
@@ -1068,7 +1096,7 @@ export default function App() {
                         checked={collectionForm.effort}
                         onChange={(e) => setCollectionForm({...collectionForm, effort: e.target.checked})}
                       />
-                      <label htmlFor="effort" className="text-sm font-bold text-slate-700 cursor-pointer select-none">
+                      <label htmlFor="effort" className="text-sm font-bold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
                         האם התאמץ השנה? (ירוק = כן, אדום = לא)
                       </label>
                     </div>
@@ -1088,12 +1116,12 @@ export default function App() {
             {activeTab === 'settings' && (
               <div className="max-w-4xl mx-auto space-y-8">
                 {/* Hebrew Years Management */}
-                <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+                <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
                   <div className="flex items-center gap-3 mb-8">
-                    <div className="bg-indigo-100 p-2 rounded-lg">
-                      <Calendar className="text-indigo-600 w-6 h-6" />
+                    <div className="bg-indigo-100 dark:bg-indigo-900/30 p-2 rounded-lg">
+                      <Calendar className="text-indigo-600 dark:text-indigo-400 w-6 h-6" />
                     </div>
-                    <h2 className="text-2xl font-bold text-slate-800">ניהול שנים עבריות</h2>
+                    <h2 className="text-2xl font-bold text-slate-800 dark:text-white">ניהול שנים עבריות</h2>
                   </div>
 
                   <form onSubmit={handleAddYear} className="flex gap-4 mb-8">
@@ -1102,7 +1130,7 @@ export default function App() {
                         type="text"
                         required
                         placeholder="הכנס שנה עברית (לדוגמה: תשפ״ה)"
-                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-slate-800 dark:text-slate-200"
                         value={yearForm.hebrew_year}
                         onChange={(e) => setYearForm({ hebrew_year: e.target.value })}
                       />
@@ -1118,8 +1146,8 @@ export default function App() {
 
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {years.map(y => (
-                      <div key={y.id} className="group relative bg-slate-50 border border-slate-200 p-4 rounded-xl flex items-center justify-between hover:border-indigo-300 transition-all">
-                        <span className="font-bold text-slate-700">{y.hebrew_year}</span>
+                      <div key={y.id} className="group relative bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 p-4 rounded-xl flex items-center justify-between hover:border-indigo-300 transition-all">
+                        <span className="font-bold text-slate-700 dark:text-slate-300">{y.hebrew_year}</span>
                         <button 
                           onClick={() => handleDeleteYear(y.id)}
                           className="text-slate-400 hover:text-rose-500 transition-colors p-1"
@@ -1133,12 +1161,12 @@ export default function App() {
                 </div>
 
                 {/* Classes Management */}
-                <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+                <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
                   <div className="flex items-center gap-3 mb-8">
-                    <div className="bg-indigo-100 p-2 rounded-lg">
-                      <ArrowRightLeft className="text-indigo-600 w-6 h-6" />
+                    <div className="bg-indigo-100 dark:bg-indigo-900/30 p-2 rounded-lg">
+                      <ArrowRightLeft className="text-indigo-600 dark:text-indigo-400 w-6 h-6" />
                     </div>
-                    <h2 className="text-2xl font-bold text-slate-800">ניהול שיעורים</h2>
+                    <h2 className="text-2xl font-bold text-slate-800 dark:text-white">ניהול שיעורים</h2>
                   </div>
 
                   <form onSubmit={handleAddClass} className="flex gap-4 mb-8">
@@ -1147,7 +1175,7 @@ export default function App() {
                         type="text"
                         required
                         placeholder="שם השיעור (לדוגמה: שיעור א')"
-                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-slate-800 dark:text-slate-200"
                         value={classForm.name}
                         onChange={(e) => setClassForm({ name: e.target.value })}
                       />
@@ -1163,8 +1191,8 @@ export default function App() {
 
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                     {classes.map(c => (
-                      <div key={c.id} className="group relative bg-slate-50 border border-slate-200 p-4 rounded-xl flex items-center justify-between hover:border-indigo-300 transition-all">
-                        <span className="font-bold text-slate-700">{c.name}</span>
+                      <div key={c.id} className="group relative bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 p-4 rounded-xl flex items-center justify-between hover:border-indigo-300 transition-all">
+                        <span className="font-bold text-slate-700 dark:text-slate-300">{c.name}</span>
                         <button 
                           onClick={() => handleDeleteClass(c.id)}
                           className="text-slate-400 hover:text-rose-500 transition-colors p-1"
@@ -1178,12 +1206,12 @@ export default function App() {
                 </div>
 
                 {/* Color Thresholds Management */}
-                <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+                <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
                   <div className="flex items-center gap-3 mb-8">
-                    <div className="bg-indigo-100 p-2 rounded-lg">
-                      <Filter className="text-indigo-600 w-6 h-6" />
+                    <div className="bg-indigo-100 dark:bg-indigo-900/30 p-2 rounded-lg">
+                      <Filter className="text-indigo-600 dark:text-indigo-400 w-6 h-6" />
                     </div>
-                    <h2 className="text-2xl font-bold text-slate-800">הגדרות צבע לפי סכום (סה"כ)</h2>
+                    <h2 className="text-2xl font-bold text-slate-800 dark:text-white">הגדרות צבע לפי סכום (סה"כ)</h2>
                   </div>
 
                   <form onSubmit={handleAddThreshold} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
@@ -1191,14 +1219,14 @@ export default function App() {
                       type="number"
                       required
                       placeholder="סכום מינימלי"
-                      className="px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                      className="px-4 py-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-slate-800 dark:text-slate-200"
                       value={thresholdForm.min_amount}
                       onChange={(e) => setThresholdForm({ ...thresholdForm, min_amount: e.target.value })}
                     />
                     <div className="flex items-center gap-2">
                       <input 
                         type="color"
-                        className="w-full h-12 p-1 bg-white border border-slate-200 rounded-xl cursor-pointer"
+                        className="w-full h-12 p-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl cursor-pointer"
                         value={thresholdForm.color}
                         onChange={(e) => setThresholdForm({ ...thresholdForm, color: e.target.value })}
                       />
@@ -1214,10 +1242,10 @@ export default function App() {
 
                   <div className="space-y-3">
                     {colorThresholds.map(t => (
-                      <div key={t.id} className="bg-slate-50 border border-slate-200 p-4 rounded-xl flex items-center justify-between">
+                      <div key={t.id} className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 p-4 rounded-xl flex items-center justify-between">
                         <div className="flex items-center gap-4">
                           <div className="w-8 h-8 rounded-full shadow-inner" style={{ backgroundColor: t.color }}></div>
-                          <span className="font-bold text-slate-700">מעל ₪{t.min_amount.toLocaleString()}</span>
+                          <span className="font-bold text-slate-700 dark:text-slate-300">מעל ₪{t.min_amount.toLocaleString()}</span>
                         </div>
                         <button 
                           onClick={() => handleDeleteThreshold(t.id)}
