@@ -37,5 +37,23 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
+  },
+  "build": {
+    "appId": "com.purim.collection",
+    "productName": "מערכת גביית פורים",
+    "directories": {
+      "output": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "main.cjs",
+      "preload.cjs",
+      "backend.cjs",
+      "purim_collection.db",
+      "package.json"
+    ],
+    "win": {
+      "target": "portable"
+    }
   }
 }

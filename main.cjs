@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
+const { startBackend } = require('./backend.cjs');
 const isDev = process.env.NODE_ENV === 'development';
 
 function createWindow() {
@@ -16,14 +17,16 @@ function createWindow() {
     icon: path.join(__dirname, 'public/icon.ico') // Optional
   });
 
-  if (isDev) {
-    win.loadURL('http://localhost:3000');
-  } else {
-    win.loadFile(path.join(__dirname, 'dist/index.html'));
-  }
+  win.loadURL('http://localhost:3000');
 }
 
 app.whenReady().then(() => {
+  const isDev = process.env.NODE_ENV === 'development';
+  const dbPath = isDev 
+    ? path.join(__dirname, 'purim_collection.db')
+    : path.join(app.getPath('userData'), 'purim_collection.db');
+
+  startBackend(3000, dbPath);
   createWindow();
 
   app.on('activate', () => {
