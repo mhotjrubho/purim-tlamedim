@@ -10,7 +10,10 @@ import {
   ArrowRightLeft,
   Loader2,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Settings,
+  Trash2,
+  Calendar
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -40,7 +43,7 @@ interface Collection {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'add_student' | 'record_collection'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'add_student' | 'record_collection' | 'settings'>('dashboard');
   const [students, setStudents] = useState<Student[]>([]);
   const [years, setYears] = useState<Year[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -51,6 +54,7 @@ export default function App() {
   // Form states
   const [studentForm, setStudentForm] = useState({ id: '', first_name: '', last_name: '', phone: '', class: '' });
   const [collectionForm, setCollectionForm] = useState({ student_id: '', year_id: '', amount: '' });
+  const [yearForm, setYearForm] = useState({ hebrew_year: '' });
 
   useEffect(() => {
     fetchData();
@@ -128,6 +132,45 @@ export default function App() {
     }
   };
 
+  const handleAddYear = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/years', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(yearForm)
+      });
+      if (res.ok) {
+        setStatus({ type: 'success', message: 'השנה נוספה בהצלחה' });
+        setYearForm({ hebrew_year: '' });
+        fetchData();
+        setTimeout(() => setStatus(null), 3000);
+      } else {
+        const data = await res.json();
+        setStatus({ type: 'error', message: data.error || 'שגיאה בהוספת השנה' });
+      }
+    } catch (error) {
+      setStatus({ type: 'error', message: 'שגיאה בתקשורת עם השרת' });
+    }
+  };
+
+  const handleDeleteYear = async (id: number) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק שנה זו?')) return;
+    try {
+      const res = await fetch(`/api/years/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setStatus({ type: 'success', message: 'השנה נמחקה בהצלחה' });
+        fetchData();
+        setTimeout(() => setStatus(null), 3000);
+      } else {
+        const data = await res.json();
+        setStatus({ type: 'error', message: data.error || 'שגיאה במחיקת השנה' });
+      }
+    } catch (error) {
+      setStatus({ type: 'error', message: 'שגיאה בתקשורת עם השרת' });
+    }
+  };
+
   const filteredCollections = useMemo(() => {
     return collections.filter(c => 
       `${c.first_name} ${c.last_name}`.includes(searchQuery) || 
@@ -136,13 +179,6 @@ export default function App() {
       c.hebrew_year.includes(searchQuery)
     );
   }, [collections, searchQuery]);
-
-  const filteredStudents = useMemo(() => {
-    return students.filter(s => 
-      `${s.first_name} ${s.last_name}`.includes(searchQuery) || 
-      s.id.includes(searchQuery)
-    );
-  }, [students, searchQuery]);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans" dir="rtl">
@@ -173,6 +209,12 @@ export default function App() {
               onClick={() => setActiveTab('record_collection')}
               icon={<PlusCircle className="w-4 h-4" />}
               label="רישום גבייה"
+            />
+            <TabButton 
+              active={activeTab === 'settings'} 
+              onClick={() => setActiveTab('settings')}
+              icon={<Settings className="w-4 h-4" />}
+              label="הגדרות"
             />
           </nav>
         </div>
@@ -390,6 +432,54 @@ export default function App() {
                 </div>
               </div>
             )}
+
+            {activeTab === 'settings' && (
+              <div className="max-w-4xl mx-auto space-y-8">
+                <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center gap-3 mb-8">
+                    <div className="bg-indigo-100 p-2 rounded-lg">
+                      <Calendar className="text-indigo-600 w-6 h-6" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-slate-800">ניהול שנים עבריות</h2>
+                  </div>
+
+                  <form onSubmit={handleAddYear} className="flex gap-4 mb-8">
+                    <div className="flex-1">
+                      <input 
+                        type="text"
+                        required
+                        placeholder="הכנס שנה עברית (לדוגמה: תשפ״ה)"
+                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                        value={yearForm.hebrew_year}
+                        onChange={(e) => setYearForm({ hebrew_year: e.target.value })}
+                      />
+                    </div>
+                    <button 
+                      type="submit"
+                      className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-md flex items-center gap-2"
+                    >
+                      <PlusCircle className="w-5 h-5" />
+                      הוסף שנה
+                    </button>
+                  </form>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {years.map(y => (
+                      <div key={y.id} className="group relative bg-slate-50 border border-slate-200 p-4 rounded-xl flex items-center justify-between hover:border-indigo-300 transition-all">
+                        <span className="font-bold text-slate-700">{y.hebrew_year}</span>
+                        <button 
+                          onClick={() => handleDeleteYear(y.id)}
+                          className="text-slate-400 hover:text-rose-500 transition-colors p-1"
+                          title="מחק שנה"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
       </main>
@@ -413,6 +503,12 @@ export default function App() {
           onClick={() => setActiveTab('record_collection')} 
           icon={<PlusCircle className="w-6 h-6" />}
           label="גבייה"
+        />
+        <MobileNavButton 
+          active={activeTab === 'settings'} 
+          onClick={() => setActiveTab('settings')} 
+          icon={<Settings className="w-6 h-6" />}
+          label="הגדרות"
         />
       </nav>
     </div>
