@@ -48,6 +48,25 @@ db.exec(`
   );
 `);
 
+// Migrations: Add columns if they don't exist (for existing databases)
+try {
+  const studentsInfo = db.prepare("PRAGMA table_info(students)").all() as any[];
+  if (!studentsInfo.find(col => col.name === 'class_id')) {
+    db.exec("ALTER TABLE students ADD COLUMN class_id INTEGER REFERENCES classes(id)");
+  }
+} catch (e) {
+  console.log("Migration for students table skipped or failed:", e);
+}
+
+try {
+  const collectionsInfo = db.prepare("PRAGMA table_info(collections)").all() as any[];
+  if (!collectionsInfo.find(col => col.name === 'effort')) {
+    db.exec("ALTER TABLE collections ADD COLUMN effort BOOLEAN DEFAULT 0");
+  }
+} catch (e) {
+  console.log("Migration for collections table skipped or failed:", e);
+}
+
 async function startServer() {
   const app = express();
   app.use(express.json());

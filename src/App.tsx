@@ -97,13 +97,15 @@ export default function App() {
         thresholdsRes.json()
       ]);
 
-      setStudents(studentsData);
-      setYears(yearsData);
-      setCollections(collectionsData);
-      setClasses(classesData);
-      setColorThresholds(thresholdsData);
+      if (Array.isArray(studentsData)) setStudents(studentsData);
+      if (Array.isArray(yearsData)) setYears(yearsData);
+      if (Array.isArray(collectionsData)) setCollections(collectionsData);
+      if (Array.isArray(classesData)) setClasses(classesData);
+      if (Array.isArray(thresholdsData)) setColorThresholds(thresholdsData);
+      
     } catch (error) {
       console.error('Error fetching data:', error);
+      setStatus({ type: 'error', message: 'שגיאה בטעינת נתונים מהשרת' });
     } finally {
       setLoading(false);
     }
