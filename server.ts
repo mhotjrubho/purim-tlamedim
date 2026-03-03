@@ -114,12 +114,51 @@ async function startServer() {
 
   app.post("/api/students", (req, res) => {
     const { id, last_name, first_name, phone, class_id } = req.body;
+    if (!id || !last_name || !first_name) {
+      return res.status(400).json({ error: "חובה להזין ת.ז, שם פרטי ושם משפחה" });
+    }
     try {
       db.prepare("INSERT INTO students (id, last_name, first_name, phone, class_id) VALUES (?, ?, ?, ?, ?)")
         .run(id, last_name, first_name, phone, class_id);
       res.status(201).json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      if (error.code === 'SQLITE_CONSTRAINT_PRIMARYKEY') {
+        return res.status(400).json({ error: "תלמיד עם ת.ז זו כבר קיים במערכת" });
+      }
+      res.status(400).json({ error: "שגיאה בהוספת התלמיד: " + error.message });
+    }
+  });
+
+  app.put("/api/students/:id", (req, res) => {
+    const { id } = req.params;
+    const { last_name, first_name, phone, class_id } = req.body;
+    try {
+      const result = db.prepare("UPDATE students SET last_name = ?, first_name = ?, phone = ?, class_id = ? WHERE id = ?")
+        .run(last_name, first_name, phone, class_id, id);
+      if (result.changes === 0) {
+        return res.status(404).json({ error: "תלמיד לא נמצא במערכת" });
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ error: "שגיאה בעדכון פרטי התלמיד: " + error.message });
+    }
+  });
+
+  app.delete("/api/students/:id", (req, res) => {
+    const { id } = req.params;
+    try {
+      // Check for collections
+      const used = db.prepare("SELECT COUNT(*) as count FROM collections WHERE student_id = ?").get(id) as { count: number };
+      if (used.count > 0) {
+        return res.status(400).json({ error: "לא ניתן למחוק תלמיד שיש לו רשומות גבייה. יש למחוק את הגביות תחילה." });
+      }
+      const result = db.prepare("DELETE FROM students WHERE id = ?").run(id);
+      if (result.changes === 0) {
+        return res.status(404).json({ error: "תלמיד לא נמצא במערכת" });
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ error: "שגיאה במחיקת התלמיד: " + error.message });
     }
   });
 
@@ -196,6 +235,28 @@ async function startServer() {
       db.prepare("INSERT INTO collections (student_id, year_id, amount, effort) VALUES (?, ?, ?, ?)")
         .run(student_id, year_id, amount, effort ? 1 : 0);
       res.status(201).json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.put("/api/collections/:id", (req, res) => {
+    const { id } = req.params;
+    const { amount, effort, year_id } = req.body;
+    try {
+      db.prepare("UPDATE collections SET amount = ?, effort = ?, year_id = ? WHERE id = ?")
+        .run(amount, effort ? 1 : 0, year_id, id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/collections/:id", (req, res) => {
+    const { id } = req.params;
+    try {
+      db.prepare("DELETE FROM collections WHERE id = ?").run(id);
+      res.json({ success: true });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
