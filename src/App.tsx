@@ -113,6 +113,10 @@ export default function App() {
 
   const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!studentForm.class_id) {
+      setStatus({ type: 'error', message: 'יש לבחור שיעור' });
+      return;
+    }
     try {
       const res = await fetch('/api/students', {
         method: 'POST',
@@ -203,13 +207,18 @@ export default function App() {
 
   const handleAddThreshold = async (e: React.FormEvent) => {
     e.preventDefault();
+    const minAmount = parseFloat(thresholdForm.min_amount);
+    if (isNaN(minAmount)) {
+      setStatus({ type: 'error', message: 'יש להזין סכום תקין' });
+      return;
+    }
     try {
       const res = await fetch('/api/color-thresholds', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...thresholdForm,
-          min_amount: parseFloat(thresholdForm.min_amount)
+          min_amount: minAmount
         })
       });
       if (res.ok) {
@@ -302,8 +311,9 @@ export default function App() {
       (row.student.class_name || '').includes(searchQuery)
     );
 
+    // Calculate maxYears across ALL students for a stable table structure
     let maxYears = 0;
-    rows.forEach(row => {
+    Array.from(studentMap.values()).forEach(row => {
       maxYears = Math.max(maxYears, row.years.length);
     });
 
@@ -311,9 +321,10 @@ export default function App() {
   }, [students, collections, searchQuery]);
 
   const getAmountColor = (amount: number) => {
+    if (colorThresholds.length === 0) return '#1e293b'; // Default slate-800
     const sortedThresholds = [...colorThresholds].sort((a, b) => b.min_amount - a.min_amount);
     const threshold = sortedThresholds.find(t => amount >= t.min_amount);
-    return threshold ? threshold.color : 'inherit';
+    return threshold ? threshold.color : '#1e293b';
   };
 
   return (

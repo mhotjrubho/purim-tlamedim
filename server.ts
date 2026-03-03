@@ -52,7 +52,7 @@ db.exec(`
 try {
   const studentsInfo = db.prepare("PRAGMA table_info(students)").all() as any[];
   if (!studentsInfo.find(col => col.name === 'class_id')) {
-    db.exec("ALTER TABLE students ADD COLUMN class_id INTEGER REFERENCES classes(id)");
+    db.exec("ALTER TABLE students ADD COLUMN class_id INTEGER");
   }
 } catch (e) {
   console.log("Migration for students table skipped or failed:", e);
@@ -179,12 +179,13 @@ async function startServer() {
 
   app.get("/api/collections", (req, res) => {
     const collections = db.prepare(`
-      SELECT c.*, s.first_name, s.last_name, s.class_id, cl.name as class_name, y.hebrew_year 
+      SELECT c.*, s.first_name, s.last_name, s.class_id, cl.name as class_name, y.hebrew_year,
+             COALESCE(c.effort, 0) as effort
       FROM collections c
       JOIN students s ON c.student_id = s.id
       LEFT JOIN classes cl ON s.class_id = cl.id
       JOIN years y ON c.year_id = y.id
-      ORDER BY c.created_at ASC
+      ORDER BY y.hebrew_year ASC, c.created_at ASC
     `).all();
     res.json(collections);
   });
