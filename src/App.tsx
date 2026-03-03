@@ -22,7 +22,19 @@ interface Student {
   first_name: string;
   last_name: string;
   phone: string;
-  class: string;
+  class_id: number;
+  class_name?: string;
+}
+
+interface Class {
+  id: number;
+  name: string;
+}
+
+interface ColorThreshold {
+  id: number;
+  min_amount: number;
+  color: string;
 }
 
 interface Year {
@@ -35,10 +47,12 @@ interface Collection {
   student_id: string;
   year_id: number;
   amount: number;
+  effort: boolean;
   created_at: string;
   first_name: string;
   last_name: string;
-  class: string;
+  class_id: number;
+  class_name: string;
   hebrew_year: string;
 }
 
@@ -46,15 +60,19 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'add_student' | 'record_collection' | 'settings'>('dashboard');
   const [students, setStudents] = useState<Student[]>([]);
   const [years, setYears] = useState<Year[]>([]);
+  const [classes, setClasses] = useState<Class[]>([]);
+  const [colorThresholds, setColorThresholds] = useState<ColorThreshold[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
   // Form states
-  const [studentForm, setStudentForm] = useState({ id: '', first_name: '', last_name: '', phone: '', class: '' });
-  const [collectionForm, setCollectionForm] = useState({ student_id: '', year_id: '', amount: '' });
+  const [studentForm, setStudentForm] = useState({ id: '', first_name: '', last_name: '', phone: '', class_id: '' });
+  const [collectionForm, setCollectionForm] = useState({ student_id: '', year_id: '', amount: '', effort: false });
   const [yearForm, setYearForm] = useState({ hebrew_year: '' });
+  const [classForm, setClassForm] = useState({ name: '' });
+  const [thresholdForm, setThresholdForm] = useState({ min_amount: '', color: '#4f46e5' });
 
   useEffect(() => {
     fetchData();
@@ -63,21 +81,27 @@ export default function App() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [studentsRes, yearsRes, collectionsRes] = await Promise.all([
+      const [studentsRes, yearsRes, collectionsRes, classesRes, thresholdsRes] = await Promise.all([
         fetch('/api/students'),
         fetch('/api/years'),
-        fetch('/api/collections')
+        fetch('/api/collections'),
+        fetch('/api/classes'),
+        fetch('/api/color-thresholds')
       ]);
       
-      const [studentsData, yearsData, collectionsData] = await Promise.all([
+      const [studentsData, yearsData, collectionsData, classesData, thresholdsData] = await Promise.all([
         studentsRes.json(),
         yearsRes.json(),
-        collectionsRes.json()
+        collectionsRes.json(),
+        classesRes.json(),
+        thresholdsRes.json()
       ]);
 
       setStudents(studentsData);
       setYears(yearsData);
       setCollections(collectionsData);
+      setClasses(classesData);
+      setColorThresholds(thresholdsData);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -91,11 +115,14 @@ export default function App() {
       const res = await fetch('/api/students', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(studentForm)
+        body: JSON.stringify({
+          ...studentForm,
+          class_id: parseInt(studentForm.class_id)
+        })
       });
       if (res.ok) {
         setStatus({ type: 'success', message: 'התלמיד נוסף בהצלחה' });
-        setStudentForm({ id: '', first_name: '', last_name: '', phone: '', class: '' });
+        setStudentForm({ id: '', first_name: '', last_name: '', phone: '', class_id: '' });
         fetchData();
         setTimeout(() => setStatus(null), 3000);
       } else {
@@ -115,17 +142,99 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...collectionForm,
-          amount: parseFloat(collectionForm.amount)
+          amount: parseFloat(collectionForm.amount),
+          year_id: parseInt(collectionForm.year_id)
         })
       });
       if (res.ok) {
         setStatus({ type: 'success', message: 'הגבייה נרשמה בהצלחה' });
-        setCollectionForm({ student_id: '', year_id: '', amount: '' });
+        setCollectionForm({ student_id: '', year_id: '', amount: '', effort: false });
         fetchData();
         setTimeout(() => setStatus(null), 3000);
       } else {
         const data = await res.json();
         setStatus({ type: 'error', message: data.error || 'שגיאה ברישום הגבייה' });
+      }
+    } catch (error) {
+      setStatus({ type: 'error', message: 'שגיאה בתקשורת עם השרת' });
+    }
+  };
+
+  const handleAddClass = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/classes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(classForm)
+      });
+      if (res.ok) {
+        setStatus({ type: 'success', message: 'השיעור נוסף בהצלחה' });
+        setClassForm({ name: '' });
+        fetchData();
+        setTimeout(() => setStatus(null), 3000);
+      } else {
+        const data = await res.json();
+        setStatus({ type: 'error', message: data.error || 'שגיאה בהוספת השיעור' });
+      }
+    } catch (error) {
+      setStatus({ type: 'error', message: 'שגיאה בתקשורת עם השרת' });
+    }
+  };
+
+  const handleDeleteClass = async (id: number) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק שיעור זה?')) return;
+    try {
+      const res = await fetch(`/api/classes/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setStatus({ type: 'success', message: 'השיעור נמחק בהצלחה' });
+        fetchData();
+        setTimeout(() => setStatus(null), 3000);
+      } else {
+        const data = await res.json();
+        setStatus({ type: 'error', message: data.error || 'שגיאה במחיקת השיעור' });
+      }
+    } catch (error) {
+      setStatus({ type: 'error', message: 'שגיאה בתקשורת עם השרת' });
+    }
+  };
+
+  const handleAddThreshold = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/color-thresholds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...thresholdForm,
+          min_amount: parseFloat(thresholdForm.min_amount)
+        })
+      });
+      if (res.ok) {
+        setStatus({ type: 'success', message: 'הגדרת הצבע נוספה בהצלחה' });
+        setThresholdForm({ min_amount: '', color: '#4f46e5' });
+        fetchData();
+        setTimeout(() => setStatus(null), 3000);
+      } else {
+        const data = await res.json();
+        setStatus({ type: 'error', message: data.error || 'שגיאה בהוספת הגדרת הצבע' });
+      }
+    } catch (error) {
+      setStatus({ type: 'error', message: 'שגיאה בתקשורת עם השרת' });
+    }
+  };
+
+  const handleDeleteThreshold = async (id: number) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק הגדרת צבע זו?')) return;
+    try {
+      const res = await fetch(`/api/color-thresholds/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setStatus({ type: 'success', message: 'הגדרת הצבע נמחקה בהצלחה' });
+        fetchData();
+        setTimeout(() => setStatus(null), 3000);
+      } else {
+        const data = await res.json();
+        setStatus({ type: 'error', message: data.error || 'שגיאה במחיקת הגדרת הצבע' });
       }
     } catch (error) {
       setStatus({ type: 'error', message: 'שגיאה בתקשורת עם השרת' });
@@ -171,14 +280,39 @@ export default function App() {
     }
   };
 
-  const filteredCollections = useMemo(() => {
-    return collections.filter(c => 
-      `${c.first_name} ${c.last_name}`.includes(searchQuery) || 
-      c.student_id.includes(searchQuery) ||
-      c.class.includes(searchQuery) ||
-      c.hebrew_year.includes(searchQuery)
+  const dashboardData = useMemo(() => {
+    const studentMap = new Map<string, { student: Student, years: Collection[] }>();
+    
+    students.forEach(s => {
+      studentMap.set(s.id, { student: s, years: [] });
+    });
+
+    collections.forEach(c => {
+      const entry = studentMap.get(c.student_id);
+      if (entry) {
+        entry.years.push(c);
+      }
+    });
+
+    const rows = Array.from(studentMap.values()).filter(row => 
+      `${row.student.first_name} ${row.student.last_name}`.includes(searchQuery) || 
+      row.student.id.includes(searchQuery) ||
+      (row.student.class_name || '').includes(searchQuery)
     );
-  }, [collections, searchQuery]);
+
+    let maxYears = 0;
+    rows.forEach(row => {
+      maxYears = Math.max(maxYears, row.years.length);
+    });
+
+    return { rows, maxYears };
+  }, [students, collections, searchQuery]);
+
+  const getAmountColor = (amount: number) => {
+    const sortedThresholds = [...colorThresholds].sort((a, b) => b.min_amount - a.min_amount);
+    const threshold = sortedThresholds.find(t => amount >= t.min_amount);
+    return threshold ? threshold.color : 'inherit';
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans" dir="rtl">
@@ -258,7 +392,7 @@ export default function App() {
                     <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
                     <input 
                       type="text" 
-                      placeholder="חיפוש לפי שם, ת.ז, כיתה או שנה..."
+                      placeholder="חיפוש לפי שם, ת.ז או שיעור..."
                       className="w-full pr-10 pl-4 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
@@ -274,33 +408,53 @@ export default function App() {
                           <th className="px-6 py-4 text-sm font-semibold text-slate-600">תלמיד</th>
                           <th className="px-6 py-4 text-sm font-semibold text-slate-600">ת.ז</th>
                           <th className="px-6 py-4 text-sm font-semibold text-slate-600">שיעור</th>
-                          <th className="px-6 py-4 text-sm font-semibold text-slate-600">שנה עברית</th>
-                          <th className="px-6 py-4 text-sm font-semibold text-slate-600">סכום</th>
-                          <th className="px-6 py-4 text-sm font-semibold text-slate-600">תאריך רישום</th>
+                          {Array.from({ length: dashboardData.maxYears }).map((_, i) => (
+                            <th key={i} className="px-6 py-4 text-sm font-semibold text-slate-600">שנה {i + 1}</th>
+                          ))}
+                          <th className="px-6 py-4 text-sm font-semibold text-slate-600">סה"כ</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {filteredCollections.length > 0 ? (
-                          filteredCollections.map((c) => (
-                            <tr key={c.id} className="hover:bg-slate-50 transition-colors">
-                              <td className="px-6 py-4 font-medium text-slate-800">{c.first_name} {c.last_name}</td>
-                              <td className="px-6 py-4 text-slate-500 font-mono text-sm">{c.student_id}</td>
-                              <td className="px-6 py-4 text-slate-600">{c.class}</td>
-                              <td className="px-6 py-4">
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700">
-                                  {c.hebrew_year}
-                                </span>
-                              </td>
-                              <td className="px-6 py-4 font-bold text-slate-900">₪{c.amount.toLocaleString()}</td>
-                              <td className="px-6 py-4 text-slate-400 text-sm">
-                                {new Date(c.created_at).toLocaleDateString('he-IL')}
-                              </td>
-                            </tr>
-                          ))
+                        {dashboardData.rows.length > 0 ? (
+                          dashboardData.rows.map((row) => {
+                            const total = row.years.reduce((sum, y) => sum + y.amount, 0);
+                            return (
+                              <tr key={row.student.id} className="hover:bg-slate-50 transition-colors">
+                                <td className="px-6 py-4 font-medium text-slate-800">{row.student.first_name} {row.student.last_name}</td>
+                                <td className="px-6 py-4 text-slate-500 font-mono text-sm">{row.student.id}</td>
+                                <td className="px-6 py-4 text-slate-600">{row.student.class_name || '-'}</td>
+                                {Array.from({ length: dashboardData.maxYears }).map((_, i) => {
+                                  const col = row.years[i];
+                                  if (!col) return <td key={i} className="px-6 py-4 text-slate-300">-</td>;
+                                  return (
+                                    <td key={i} className="px-6 py-4">
+                                      <div className="flex flex-col">
+                                        <span className="text-[10px] text-slate-400">({col.hebrew_year})</span>
+                                        <span 
+                                          className="font-bold"
+                                          style={{ color: col.effort ? '#10b981' : '#f43f5e' }}
+                                        >
+                                          ₪{col.amount.toLocaleString()}
+                                        </span>
+                                      </div>
+                                    </td>
+                                  );
+                                })}
+                                <td className="px-6 py-4">
+                                  <span 
+                                    className="font-black text-lg"
+                                    style={{ color: getAmountColor(total) }}
+                                  >
+                                    ₪{total.toLocaleString()}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })
                         ) : (
                           <tr>
-                            <td colSpan={6} className="px-6 py-12 text-center text-slate-400 italic">
-                              לא נמצאו רשומות גבייה
+                            <td colSpan={dashboardData.maxYears + 4} className="px-6 py-12 text-center text-slate-400 italic">
+                              לא נמצאו רשומות
                             </td>
                           </tr>
                         )}
@@ -330,13 +484,20 @@ export default function App() {
                         onChange={(val) => setStudentForm({...studentForm, id: val})}
                         placeholder="9 ספרות"
                       />
-                      <FormField 
-                        label="שיעור (כיתה)" 
-                        required
-                        value={studentForm.class}
-                        onChange={(val) => setStudentForm({...studentForm, class: val})}
-                        placeholder="לדוגמה: שיעור א'"
-                      />
+                      <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">שיעור (כיתה)</label>
+                        <select 
+                          required
+                          className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all appearance-none"
+                          value={studentForm.class_id}
+                          onChange={(e) => setStudentForm({...studentForm, class_id: e.target.value})}
+                        >
+                          <option value="">בחר שיעור מהרשימה...</option>
+                          {classes.map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                      </div>
                       <FormField 
                         label="שם פרטי" 
                         required
@@ -391,7 +552,7 @@ export default function App() {
                       >
                         <option value="">בחר תלמיד מהרשימה...</option>
                         {students.map(s => (
-                          <option key={s.id} value={s.id}>{s.first_name} {s.last_name} ({s.class})</option>
+                          <option key={s.id} value={s.id}>{s.first_name} {s.last_name} ({s.class_name})</option>
                         ))}
                       </select>
                     </div>
@@ -421,6 +582,19 @@ export default function App() {
                       />
                     </div>
 
+                    <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                      <input 
+                        type="checkbox" 
+                        id="effort"
+                        className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        checked={collectionForm.effort}
+                        onChange={(e) => setCollectionForm({...collectionForm, effort: e.target.checked})}
+                      />
+                      <label htmlFor="effort" className="text-sm font-bold text-slate-700 cursor-pointer select-none">
+                        האם התאמץ השנה? (ירוק = כן, אדום = לא)
+                      </label>
+                    </div>
+
                     <button 
                       type="submit"
                       className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 flex items-center justify-center gap-2"
@@ -435,6 +609,7 @@ export default function App() {
 
             {activeTab === 'settings' && (
               <div className="max-w-4xl mx-auto space-y-8">
+                {/* Hebrew Years Management */}
                 <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="flex items-center gap-3 mb-8">
                     <div className="bg-indigo-100 p-2 rounded-lg">
@@ -473,6 +648,104 @@ export default function App() {
                           title="מחק שנה"
                         >
                           <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Classes Management */}
+                <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center gap-3 mb-8">
+                    <div className="bg-indigo-100 p-2 rounded-lg">
+                      <ArrowRightLeft className="text-indigo-600 w-6 h-6" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-slate-800">ניהול שיעורים</h2>
+                  </div>
+
+                  <form onSubmit={handleAddClass} className="flex gap-4 mb-8">
+                    <div className="flex-1">
+                      <input 
+                        type="text"
+                        required
+                        placeholder="שם השיעור (לדוגמה: שיעור א')"
+                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                        value={classForm.name}
+                        onChange={(e) => setClassForm({ name: e.target.value })}
+                      />
+                    </div>
+                    <button 
+                      type="submit"
+                      className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-md flex items-center gap-2"
+                    >
+                      <PlusCircle className="w-5 h-5" />
+                      הוסף שיעור
+                    </button>
+                  </form>
+
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    {classes.map(c => (
+                      <div key={c.id} className="group relative bg-slate-50 border border-slate-200 p-4 rounded-xl flex items-center justify-between hover:border-indigo-300 transition-all">
+                        <span className="font-bold text-slate-700">{c.name}</span>
+                        <button 
+                          onClick={() => handleDeleteClass(c.id)}
+                          className="text-slate-400 hover:text-rose-500 transition-colors p-1"
+                          title="מחק שיעור"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Color Thresholds Management */}
+                <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center gap-3 mb-8">
+                    <div className="bg-indigo-100 p-2 rounded-lg">
+                      <Filter className="text-indigo-600 w-6 h-6" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-slate-800">הגדרות צבע לפי סכום (סה"כ)</h2>
+                  </div>
+
+                  <form onSubmit={handleAddThreshold} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                    <input 
+                      type="number"
+                      required
+                      placeholder="סכום מינימלי"
+                      className="px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                      value={thresholdForm.min_amount}
+                      onChange={(e) => setThresholdForm({ ...thresholdForm, min_amount: e.target.value })}
+                    />
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="color"
+                        className="w-full h-12 p-1 bg-white border border-slate-200 rounded-xl cursor-pointer"
+                        value={thresholdForm.color}
+                        onChange={(e) => setThresholdForm({ ...thresholdForm, color: e.target.value })}
+                      />
+                    </div>
+                    <button 
+                      type="submit"
+                      className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-md flex items-center justify-center gap-2"
+                    >
+                      <PlusCircle className="w-5 h-5" />
+                      הוסף הגדרה
+                    </button>
+                  </form>
+
+                  <div className="space-y-3">
+                    {colorThresholds.map(t => (
+                      <div key={t.id} className="bg-slate-50 border border-slate-200 p-4 rounded-xl flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="w-8 h-8 rounded-full shadow-inner" style={{ backgroundColor: t.color }}></div>
+                          <span className="font-bold text-slate-700">מעל ₪{t.min_amount.toLocaleString()}</span>
+                        </div>
+                        <button 
+                          onClick={() => handleDeleteThreshold(t.id)}
+                          className="text-slate-400 hover:text-rose-500 transition-colors p-1"
+                        >
+                          <Trash2 className="w-5 h-5" />
                         </button>
                       </div>
                     ))}
