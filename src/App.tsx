@@ -23,7 +23,11 @@ import {
   ChevronDown,
   ArrowUpDown,
   FileSpreadsheet,
-  X
+  X,
+  TrendingUp,
+  Percent,
+  Plus,
+  Zap
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
@@ -98,6 +102,13 @@ export default function App() {
   const [importData, setImportData] = useState<any[] | null>(null);
   const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
   const [showImportModal, setShowImportModal] = useState(false);
+  const [importDefaultYear, setImportDefaultYear] = useState<string>('');
+  const [importAmountMode, setImportAmountMode] = useState<'replace' | 'add'>('replace');
+  const [importOnlyExisting, setImportOnlyExisting] = useState<boolean>(false);
+
+  // Dashboard FAB & Quick Add Collection Modal state
+  const [fabOpen, setFabOpen] = useState(false);
+  const [showQuickCollectionModal, setShowQuickCollectionModal] = useState(false);
 
   useEffect(() => {
     if (darkMode) {
@@ -225,116 +236,233 @@ export default function App() {
       const wb = XLSX.read(bstr, { type: 'binary' });
       const wsname = wb.SheetNames[0];
       const ws = wb.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws);
+      const data = XLSX.utils.sheet_to_json(ws) as any[];
+      if (data && data.length > 0) {
+        const columns = Object.keys(data[0]);
+        const autoMap: Record<string, string> = {};
+        columns.forEach(col => {
+          const clean = col.trim();
+          if (['ת.ז', 'תעודת זהות', 'תז', 'מספר זהות', 'id', 'ID'].includes(clean)) autoMap['id'] = col;
+          else if (['שם פרטי', 'פרטי', 'first_name'].includes(clean)) autoMap['first_name'] = col;
+          else if (['שם משפחה', 'משפחה', 'last_name'].includes(clean)) autoMap['last_name'] = col;
+          else if (['טלפון', 'נייד', 'פלאפון', 'מספר טלפון', 'phone'].includes(clean)) autoMap['phone'] = col;
+          else if (['שיעור', 'כיתה', 'מחזור', 'class', 'class_name'].includes(clean)) autoMap['class_name'] = col;
+          else if (['סכום', 'סכום גבייה', 'גבייה', 'סה"כ', 'סהכ', 'amount'].includes(clean)) autoMap['amount'] = col;
+          else if (['שנה', 'שנה עברית', 'year', 'hebrew_year'].includes(clean)) autoMap['year'] = col;
+          else if (['מאמץ', 'התאמץ', 'effort'].includes(clean)) autoMap['effort'] = col;
+        });
+        setColumnMapping(autoMap);
+      }
+      if (years.length > 0 && !importDefaultYear) {
+        setImportDefaultYear(years[0].hebrew_year);
+      }
       setImportData(data);
       setShowImportModal(true);
+      e.target.value = '';
     };
     reader.readAsBinaryString(file);
   };
 
   const processImport = async () => {
-    if (!importData) return;
+    if (!importData || !columnMapping['id']) return;
     setLoading(true);
-    let successCount = 0;
+    let updatedCount = 0;
+    let createdCount = 0;
     let errorCount = 0;
 
+    // Keep local mutable copies of classes, years, students, collections during batch processing
+    let currentClasses = [...classes];
+    let currentYears = [...years];
+    let currentStudents = [...students];
+    let currentCollections = [...collections];
+
     for (const row of importData) {
-      const id = row[columnMapping['id']];
-      const firstName = row[columnMapping['first_name']];
-      const lastName = row[columnMapping['last_name']];
-      const phone = row[columnMapping['phone']];
-      const className = row[columnMapping['class_name']];
-      const amount = row[columnMapping['amount']];
-      const yearName = row[columnMapping['year']];
-      const effortVal = row[columnMapping['effort']];
-      
-      if (!id || !firstName || !lastName) continue;
+      const rawId = row[columnMapping['id']];
+      if (rawId === undefined || rawId === null || String(rawId).trim() === '') continue;
+      const id = String(rawId).trim();
+
+      const firstName = columnMapping['first_name'] ? row[columnMapping['first_name']] : undefined;
+      const lastName = columnMapping['last_name'] ? row[columnMapping['last_name']] : undefined;
+      const phone = columnMapping['phone'] ? row[columnMapping['phone']] : undefined;
+      const className = columnMapping['class_name'] ? row[columnMapping['class_name']] : undefined;
+      const rawAmount = columnMapping['amount'] ? row[columnMapping['amount']] : undefined;
+      const rowYearName = columnMapping['year'] ? row[columnMapping['year']] : undefined;
+      const effortVal = columnMapping['effort'] ? row[columnMapping['effort']] : undefined;
 
       try {
-        // Find or create class
-        let classId = null;
-        if (className) {
-          let cls = classes.find(c => c.name === className);
+        // Find or create class only if className is mapped and non-empty
+        let classId: number | undefined = undefined;
+        if (className !== undefined && String(className).trim() !== '') {
+          const cleanClassName = String(className).trim();
+          let cls = currentClasses.find(c => c.name === cleanClassName);
           if (!cls) {
             const clsRes = await fetch('/api/classes', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name: className })
+              body: JSON.stringify({ name: cleanClassName })
             });
             if (clsRes.ok) {
               const allCls = await (await fetch('/api/classes')).json();
+              currentClasses = allCls;
               setClasses(allCls);
-              cls = allCls.find((c: any) => c.name === className);
+              cls = allCls.find((c: any) => c.name === cleanClassName);
             }
           }
-          classId = cls?.id || null;
+          if (cls) classId = cls.id;
         }
 
-        // Check if student exists
-        const existing = students.find(s => s.id === String(id));
-        const method = existing ? 'PUT' : 'POST';
-        const url = existing ? `/api/students/${id}` : '/api/students';
+        const existingStudent = currentStudents.find(s => s.id === id);
 
-        const res = await fetch(url, {
-          method,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: String(id),
-            first_name: firstName,
-            last_name: lastName,
-            phone: phone || '',
-            class_id: classId
-          })
-        });
+        if (!existingStudent && importOnlyExisting) {
+          continue;
+        }
 
-        if (res.ok) {
-          successCount++;
-          
-          // Handle collection if amount and year are provided
-          if (amount !== undefined && yearName) {
-            // Find or create year
-            let year = years.find(y => y.hebrew_year === String(yearName));
+        let studentOk = true;
+        const hasStudentFieldUpdates =
+          (firstName !== undefined && String(firstName).trim() !== '') ||
+          (lastName !== undefined && String(lastName).trim() !== '') ||
+          (phone !== undefined && String(phone).trim() !== '') ||
+          classId !== undefined;
+
+        if (existingStudent) {
+          // Only send PUT if at least one student detail column was provided in this row
+          if (hasStudentFieldUpdates) {
+            const payload: Record<string, any> = {
+              first_name: firstName !== undefined && String(firstName).trim() !== '' ? String(firstName).trim() : existingStudent.first_name,
+              last_name: lastName !== undefined && String(lastName).trim() !== '' ? String(lastName).trim() : existingStudent.last_name,
+              phone: phone !== undefined && String(phone).trim() !== '' ? String(phone).trim() : existingStudent.phone,
+              class_id: classId !== undefined ? classId : existingStudent.class_id
+            };
+            const res = await fetch(`/api/students/${encodeURIComponent(id)}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            studentOk = res.ok;
+          }
+          if (studentOk) updatedCount++;
+        } else {
+          // Student doesn't exist yet -> create with available fields
+          const payload = {
+            id,
+            first_name: firstName !== undefined && String(firstName).trim() !== '' ? String(firstName).trim() : 'תלמיד',
+            last_name: lastName !== undefined && String(lastName).trim() !== '' ? String(lastName).trim() : id,
+            phone: phone !== undefined ? String(phone).trim() : '',
+            class_id: classId ?? null
+          };
+          const res = await fetch('/api/students', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          studentOk = res.ok;
+          if (studentOk) {
+            createdCount++;
+            currentStudents.push({
+              id,
+              first_name: payload.first_name,
+              last_name: payload.last_name,
+              phone: payload.phone,
+              class_id: payload.class_id || 0
+            });
+          }
+        }
+
+        if (studentOk) {
+          // Handle collection update/creation if amount is provided
+          const parsedAmount = rawAmount !== undefined && rawAmount !== null && String(rawAmount).trim() !== ''
+            ? parseFloat(String(rawAmount).replace(/[^\d.-]/g, ''))
+            : NaN;
+          const targetYearName = (rowYearName !== undefined && String(rowYearName).trim() !== '')
+            ? String(rowYearName).trim()
+            : importDefaultYear.trim();
+
+          if (!isNaN(parsedAmount) && targetYearName) {
+            let year = currentYears.find(y => y.hebrew_year === targetYearName);
             if (!year) {
               const yearRes = await fetch('/api/years', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ hebrew_year: String(yearName) })
+                body: JSON.stringify({ hebrew_year: targetYearName })
               });
               if (yearRes.ok) {
                 const allYears = await (await fetch('/api/years')).json();
+                currentYears = allYears;
                 setYears(allYears);
-                year = allYears.find((y: any) => y.hebrew_year === String(yearName));
+                year = allYears.find((y: any) => y.hebrew_year === targetYearName);
               }
             }
 
             if (year) {
-              // Check if collection already exists for this student and year
-              const existingCollection = collections.find(c => c.student_id === String(id) && c.year_id === year?.id);
-              const collMethod = existingCollection ? 'PUT' : 'POST';
-              const collUrl = existingCollection ? `/api/collections/${existingCollection.id}` : '/api/collections';
-              
-              await fetch(collUrl, {
-                method: collMethod,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  student_id: String(id),
-                  year_id: year.id,
-                  amount: parseFloat(amount),
-                  effort: effortVal === 'כן' || effortVal === '1' || effortVal === 1 || effortVal === true
-                })
-              });
+              const existingCollection = currentCollections.find(
+                c => c.student_id === id && c.year_id === year?.id
+              );
+
+              const hasEffortColumn = effortVal !== undefined && String(effortVal).trim() !== '';
+              const parsedEffort = hasEffortColumn
+                ? (effortVal === 'כן' || effortVal === '1' || effortVal === 1 || effortVal === true || String(effortVal).trim() === 'התאמץ')
+                : (existingCollection ? Boolean(existingCollection.effort) : false);
+
+              if (existingCollection) {
+                const finalAmount = importAmountMode === 'add'
+                  ? existingCollection.amount + parsedAmount
+                  : parsedAmount;
+
+                const collRes = await fetch(`/api/collections/${existingCollection.id}`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    student_id: id,
+                    year_id: year.id,
+                    amount: finalAmount,
+                    effort: parsedEffort
+                  })
+                });
+                if (collRes.ok) {
+                  existingCollection.amount = finalAmount;
+                  existingCollection.effort = parsedEffort;
+                }
+              } else {
+                const collRes = await fetch('/api/collections', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    student_id: id,
+                    year_id: year.id,
+                    amount: parsedAmount,
+                    effort: parsedEffort
+                  })
+                });
+                if (collRes.ok) {
+                  currentCollections.push({
+                    id: Date.now(),
+                    student_id: id,
+                    year_id: year.id,
+                    amount: parsedAmount,
+                    effort: parsedEffort,
+                    created_at: new Date().toISOString(),
+                    first_name: '',
+                    last_name: '',
+                    class_id: 0,
+                    class_name: '',
+                    hebrew_year: year.hebrew_year
+                  });
+                }
+              }
             }
           }
+        } else {
+          errorCount++;
         }
-        else errorCount++;
       } catch (err) {
         errorCount++;
       }
     }
 
+    const totalSuccess = updatedCount + createdCount;
     setStatus({ 
-      type: successCount > 0 ? 'success' : 'error', 
-      message: `ייבוא הושלם: ${successCount} הצליחו, ${errorCount} נכשלו` 
+      type: totalSuccess > 0 ? 'success' : 'error', 
+      message: `ייבוא הושלם: ${updatedCount} עודכנו, ${createdCount} נוספו${errorCount > 0 ? `, ${errorCount} נכשלו` : ''}` 
     });
     setShowImportModal(false);
     setImportData(null);
@@ -395,6 +523,7 @@ export default function App() {
         setStatus({ type: 'success', message: 'הגבייה נרשמה בהצלחה' });
         setCollectionForm({ student_id: '', year_id: '', amount: '', effort: false });
         setStudentSearch('');
+        setShowQuickCollectionModal(false);
         fetchData();
         setTimeout(() => setStatus(null), 3000);
       } else {
@@ -624,7 +753,31 @@ export default function App() {
       maxYears = Math.max(maxYears, row.years.length);
     });
 
-    return { rows, maxYears };
+    // Real-time Summary Statistics (based on current filtered view or all active data)
+    const totalActiveStudents = rows.length;
+    const studentsWithCollections = rows.filter(r => r.years.some(y => y.amount > 0)).length;
+    const totalCollectedAmount = rows.reduce(
+      (sum, r) => sum + r.years.reduce((ySum, y) => ySum + y.amount, 0),
+      0
+    );
+    const collectionRate = totalActiveStudents > 0
+      ? Math.round((studentsWithCollections / totalActiveStudents) * 100)
+      : 0;
+    const averagePerStudent = studentsWithCollections > 0
+      ? Math.round(totalCollectedAmount / studentsWithCollections)
+      : 0;
+
+    return {
+      rows,
+      maxYears,
+      stats: {
+        totalCollectedAmount,
+        totalActiveStudents,
+        studentsWithCollections,
+        collectionRate,
+        averagePerStudent
+      }
+    };
   }, [students, collections, searchQuery, filterClass, sortConfig]);
 
   const getAmountColor = (amount: number) => {
@@ -737,7 +890,79 @@ export default function App() {
             transition={{ duration: 0.2 }}
           >
             {activeTab === 'dashboard' && (
-              <div className="space-y-6">
+              <div className="space-y-6 relative pb-16">
+                {/* Summary Statistics Card at Top of Dashboard */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                      <h3 className="text-base font-bold text-slate-800 dark:text-white">מדדי גבייה בזמן אמת</h3>
+                    </div>
+                    {(filterClass || searchQuery) && (
+                      <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2.5 py-1 rounded-lg">
+                        מוצג לפי סינון נוכחי
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* Total Collected Amount */}
+                    <div className="p-5 rounded-2xl bg-gradient-to-br from-indigo-50/80 to-white dark:from-indigo-950/30 dark:to-slate-900 border border-indigo-100 dark:border-indigo-900/40 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">סה"כ סכום שנגבה</p>
+                        <div className="text-3xl font-black text-indigo-600 dark:text-indigo-400 tracking-tight">
+                          ₪{dashboardData.stats.totalCollectedAmount.toLocaleString()}
+                        </div>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                          ממוצע לגובה פעיל: ₪{dashboardData.stats.averagePerStudent.toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="w-12 h-12 rounded-2xl bg-indigo-600/10 dark:bg-indigo-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                        <Coins className="w-6 h-6" />
+                      </div>
+                    </div>
+
+                    {/* Total Active Students */}
+                    <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-50/80 to-white dark:from-emerald-950/30 dark:to-slate-900 border border-emerald-100 dark:border-emerald-900/40 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">סה"כ תלמידים פעילים</p>
+                        <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">
+                          {dashboardData.stats.totalActiveStudents.toLocaleString()}
+                        </div>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                          מתוכם {dashboardData.stats.studentsWithCollections.toLocaleString()} השתתפו בגבייה
+                        </p>
+                      </div>
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-600/10 dark:bg-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                        <Users className="w-6 h-6" />
+                      </div>
+                    </div>
+
+                    {/* Collection Rate */}
+                    <div className="p-5 rounded-2xl bg-gradient-to-br from-amber-50/80 to-white dark:from-amber-950/30 dark:to-slate-900 border border-amber-100 dark:border-amber-900/40 flex flex-col justify-between">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">אחוז גבייה (שיעור השתתפות)</p>
+                          <div className="text-3xl font-black text-amber-600 dark:text-amber-400 tracking-tight">
+                            {dashboardData.stats.collectionRate}%
+                          </div>
+                        </div>
+                        <div className="w-12 h-12 rounded-2xl bg-amber-600/10 dark:bg-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400">
+                          <Percent className="w-6 h-6" />
+                        </div>
+                      </div>
+                      <div className="mt-3">
+                        <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-amber-500 rounded-full transition-all duration-500"
+                            style={{ width: `${Math.min(100, dashboardData.stats.collectionRate)}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                   <div>
                     <h2 className="text-2xl font-bold text-slate-800 dark:text-white">סיכום גביות</h2>
@@ -839,6 +1064,95 @@ export default function App() {
                       </tbody>
                     </table>
                   </div>
+                </div>
+
+                {/* Floating Action Button (FAB) & Context Menu in Dashboard */}
+                <div className="fixed bottom-20 md:bottom-8 left-6 z-40 flex flex-col items-end">
+                  <AnimatePresence>
+                    {fabOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-30" 
+                          onClick={() => setFabOpen(false)}
+                        />
+                        <motion.div
+                          initial={{ opacity: 0, y: 15, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 15, scale: 0.95 }}
+                          transition={{ duration: 0.15 }}
+                          className="relative z-40 mb-3 w-64 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-2 space-y-1"
+                        >
+                          <div className="px-3 py-2 text-[11px] font-bold text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800">
+                            פעולות מהירות
+                          </div>
+                          <button
+                            onClick={() => {
+                              setFabOpen(false);
+                              setShowQuickCollectionModal(true);
+                            }}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors text-right"
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                              <PlusCircle className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <div>הוספת גבייה מהירה</div>
+                              <div className="text-[10px] font-normal text-slate-400">רישום מיידי ללא מעבר לשונית</div>
+                            </div>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setFabOpen(false);
+                              exportToExcel();
+                            }}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors text-right"
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                              <Download className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <div>ייצוא דוח לאקסל</div>
+                              <div className="text-[10px] font-normal text-slate-400">הורדת טבלת סיכום הגביות</div>
+                            </div>
+                          </button>
+
+                          <label
+                            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-amber-900/30 hover:text-amber-600 dark:hover:text-amber-400 transition-colors text-right cursor-pointer"
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                              <Upload className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <div>ייבוא / עדכון מאקסל</div>
+                              <div className="text-[10px] font-normal text-slate-400">עדכון סכומים או פרטים לפי ת.ז</div>
+                            </div>
+                            <input
+                              type="file"
+                              accept=".xlsx, .xls"
+                              className="hidden"
+                              onChange={(e) => {
+                                setFabOpen(false);
+                                handleFileUpload(e);
+                              }}
+                            />
+                          </label>
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+
+                  <button
+                    onClick={() => setFabOpen(!fabOpen)}
+                    className={`relative z-40 w-14 h-14 rounded-2xl shadow-xl flex items-center justify-center transition-all duration-200 ${
+                      fabOpen
+                        ? 'bg-slate-800 dark:bg-slate-700 text-white rotate-45'
+                        : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-300 dark:shadow-none hover:scale-105'
+                    }`}
+                    title="פעולות מהירות"
+                  >
+                    <Plus className="w-7 h-7" />
+                  </button>
                 </div>
               </div>
             )}
@@ -1454,48 +1768,169 @@ export default function App() {
           </div>
         )}
 
+        {showQuickCollectionModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden border border-slate-100 dark:border-slate-800"
+            >
+              <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="bg-indigo-100 dark:bg-indigo-900/30 p-2 rounded-xl">
+                    <Zap className="text-indigo-600 dark:text-indigo-400 w-5 h-5" />
+                  </div>
+                  <h3 className="text-xl font-bold text-slate-800 dark:text-white">הוספת גבייה מהירה</h3>
+                </div>
+                <button onClick={() => setShowQuickCollectionModal(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+              <form onSubmit={handleRecordCollection} className="p-6 space-y-5">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">חפש ובחר תלמיד</label>
+                  <div className="relative mb-2">
+                    <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input 
+                      type="text"
+                      placeholder="חפש לפי שם או ת.ז..."
+                      className="w-full pr-10 pl-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-sm"
+                      value={studentSearch}
+                      onChange={(e) => setStudentSearch(e.target.value)}
+                    />
+                  </div>
+                  <select 
+                    required
+                    className="w-full px-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-slate-800 dark:text-slate-200"
+                    value={collectionForm.student_id}
+                    onChange={(e) => setCollectionForm({...collectionForm, student_id: e.target.value})}
+                  >
+                    <option value="">בחר תלמיד מהרשימה...</option>
+                    {students
+                      .filter(s => 
+                        `${s.first_name} ${s.last_name}`.includes(studentSearch) || 
+                        s.id.includes(studentSearch)
+                      )
+                      .map(s => (
+                        <option key={s.id} value={s.id}>{s.first_name} {s.last_name} ({s.class_name || 'ללא שיעור'}) - {s.id}</option>
+                      ))
+                    }
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">שנה עברית <span className="text-rose-500">*</span></label>
+                    <select 
+                      required
+                      className="w-full px-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-slate-800 dark:text-slate-200"
+                      value={collectionForm.year_id}
+                      onChange={(e) => setCollectionForm({...collectionForm, year_id: e.target.value})}
+                    >
+                      <option value="">בחר שנה...</option>
+                      {years.map(y => (
+                        <option key={y.id} value={y.id}>{y.hebrew_year}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <FormField 
+                    label="סכום (₪)" 
+                    type="number"
+                    required
+                    value={collectionForm.amount}
+                    onChange={(val) => setCollectionForm({...collectionForm, amount: val})}
+                    placeholder="0.00"
+                  />
+                </div>
+
+                <div className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <input 
+                    type="checkbox" 
+                    id="quick_effort"
+                    className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    checked={collectionForm.effort}
+                    onChange={(e) => setCollectionForm({...collectionForm, effort: e.target.checked})}
+                  />
+                  <label htmlFor="quick_effort" className="text-sm font-bold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+                    האם התאמץ השנה? (ירוק = כן, אדום = לא)
+                  </label>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button 
+                    type="submit"
+                    className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 dark:shadow-none flex items-center justify-center gap-2"
+                  >
+                    <CheckCircle2 className="w-5 h-5" />
+                    שמור גבייה
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setShowQuickCollectionModal(false)}
+                    className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 py-3 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    ביטול
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
         {showImportModal && importData && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden"
+              className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
             >
-              <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-3">
                   <FileSpreadsheet className="text-emerald-500 w-6 h-6" />
-                  <h3 className="text-xl font-bold text-slate-800 dark:text-white">ייבוא חכם מאקסל</h3>
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-800 dark:text-white">ייבוא ועדכון חכם מאקסל</h3>
+                    <p className="text-xs text-slate-400">ניתן לעדכן רק חלק מהשדות (למשל רק ת.ז וסכום) מבלי לדרוס נתונים קיימים</p>
+                  </div>
                 </div>
                 <button onClick={() => setShowImportModal(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
                   <X className="w-5 h-5 text-slate-400" />
                 </button>
               </div>
-              <div className="p-6 space-y-6">
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  התאם את העמודות מהקובץ שהעלית לשדות במערכת. המערכת תעדכן תלמידים קיימים לפי ת.ז ותוסיף חדשים.
-                </p>
+              <div className="p-6 space-y-6 overflow-y-auto">
+                <div className="bg-indigo-50/70 dark:bg-indigo-950/30 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/40 text-xs text-indigo-800 dark:text-indigo-300 leading-relaxed">
+                  <strong>איך זה עובד?</strong> חובה לבחור רק עמודת <strong>תעודת זהות</strong>. כל שאר העמודות הן רשות בלבד! שדות שלא תבחר יישארו כפי שהם במערכת ולא יימחקו.
+                </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {[
-                    { id: 'id', label: 'תעודת זהות (חובה)' },
-                    { id: 'first_name', label: 'שם פרטי (חובה)' },
-                    { id: 'last_name', label: 'שם משפחה (חובה)' },
-                    { id: 'phone', label: 'טלפון' },
-                    { id: 'class_name', label: 'שיעור' },
-                    { id: 'amount', label: 'סכום גבייה' },
-                    { id: 'year', label: 'שנה עברית' },
-                    { id: 'effort', label: 'מאמץ (כן/לא)' }
+                    { id: 'id', label: 'תעודת זהות (חובה *)', required: true },
+                    { id: 'amount', label: 'סכום גבייה (אופציונלי)' },
+                    { id: 'year', label: 'שנה עברית בקובץ (אופציונלי)' },
+                    { id: 'effort', label: 'מאמץ - כן/לא (אופציונלי)' },
+                    { id: 'first_name', label: 'שם פרטי (אופציונלי)' },
+                    { id: 'last_name', label: 'שם משפחה (אופציונלי)' },
+                    { id: 'phone', label: 'טלפון (אופציונלי)' },
+                    { id: 'class_name', label: 'שיעור (אופציונלי)' }
                   ].map(field => (
                     <div key={field.id}>
-                      <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-2">{field.label}</label>
+                      <label className={`block text-xs font-bold mb-1.5 ${
+                        field.required ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400'
+                      }`}>
+                        {field.label}
+                      </label>
                       <select 
-                        className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                        className={`w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm ${
+                          field.required && !columnMapping[field.id]
+                            ? 'border-rose-300 dark:border-rose-800'
+                            : 'border-slate-200 dark:border-slate-700'
+                        }`}
                         value={columnMapping[field.id] || ''}
                         onChange={(e) => setColumnMapping({...columnMapping, [field.id]: e.target.value})}
                       >
-                        <option value="">בחר עמודה...</option>
-                        {Object.keys(importData[0]).map(col => (
+                        <option value="">-- ללא שינוי / לא נבחר --</option>
+                        {Object.keys(importData[0] || {}).map(col => (
                           <option key={col} value={col}>{col}</option>
                         ))}
                       </select>
@@ -1503,20 +1938,93 @@ export default function App() {
                   ))}
                 </div>
 
-                <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-xl border border-amber-100 dark:border-amber-900/30 flex items-start gap-3">
-                  <AlertCircle className="text-amber-600 dark:text-amber-500 w-5 h-5 shrink-0 mt-0.5" />
-                  <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
-                    שים לב: אם השיעור המצוין בקובץ לא קיים במערכת, הוא ייווצר אוטומטית. וודא ששמות השיעורים מדויקים.
-                  </p>
+                {/* Collection update options when amount column is mapped */}
+                {columnMapping['amount'] && (
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-4">
+                    <h4 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                      <Coins className="w-4 h-4 text-indigo-600" />
+                      הגדרות עדכון סכום גבייה
+                    </h4>
+
+                    {!columnMapping['year'] && (
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">
+                          לא נבחרה עמודת "שנה עברית" בקובץ — לאיזו שנה לשייך את הסכומים?
+                        </label>
+                        <div className="flex gap-2">
+                          <select
+                            className="flex-1 px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                            value={importDefaultYear}
+                            onChange={(e) => setImportDefaultYear(e.target.value)}
+                          >
+                            <option value="">בחר שנה קיימת...</option>
+                            {years.map(y => (
+                              <option key={y.id} value={y.hebrew_year}>{y.hebrew_year}</option>
+                            ))}
+                          </select>
+                          <input
+                            type="text"
+                            placeholder="או הקלד שנה (כגון תשפ״ה)"
+                            className="flex-1 px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                            value={importDefaultYear}
+                            onChange={(e) => setImportDefaultYear(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-2">
+                        כיצד לעדכן כאשר כבר קיימת גבייה לתלמיד באותה שנה?
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setImportAmountMode('replace')}
+                          className={`px-4 py-2.5 rounded-xl border text-xs font-bold transition-all text-right ${
+                            importAmountMode === 'replace'
+                              ? 'bg-indigo-600 text-white border-indigo-600'
+                              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                          }`}
+                        >
+                          עדכן סכום (החלף סכום קיים בחדש)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setImportAmountMode('add')}
+                          className={`px-4 py-2.5 rounded-xl border text-xs font-bold transition-all text-right ${
+                            importAmountMode === 'add'
+                              ? 'bg-indigo-600 text-white border-indigo-600'
+                              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                          }`}
+                        >
+                          הוסף לסכום הקיים (צבירה)
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <input
+                    type="checkbox"
+                    id="import_only_existing"
+                    className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    checked={importOnlyExisting}
+                    onChange={(e) => setImportOnlyExisting(e.target.checked)}
+                  />
+                  <label htmlFor="import_only_existing" className="text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+                    עדכן תלמידים קיימים בלבד (דלג על מספרי ת.ז שלא קיימים במערכת)
+                  </label>
                 </div>
 
-                <div className="flex gap-3">
+                <div className="flex gap-3 pt-2">
                   <button 
                     onClick={processImport}
-                    disabled={!columnMapping['id'] || !columnMapping['first_name'] || !columnMapping['last_name']}
+                    disabled={!columnMapping['id'] || (Boolean(columnMapping['amount']) && !columnMapping['year'] && !importDefaultYear.trim())}
                     className="flex-1 bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-200 dark:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    התחל ייבוא נתונים
+                    התחל ייבוא ועדכון נתונים
                   </button>
                   <button 
                     onClick={() => setShowImportModal(false)}

@@ -114,12 +114,12 @@ async function startServer() {
 
   app.post("/api/students", (req, res) => {
     const { id, last_name, first_name, phone, class_id } = req.body;
-    if (!id || !last_name || !first_name) {
-      return res.status(400).json({ error: "חובה להזין ת.ז, שם פרטי ושם משפחה" });
+    if (!id) {
+      return res.status(400).json({ error: "חובה להזין ת.ז" });
     }
     try {
       db.prepare("INSERT INTO students (id, last_name, first_name, phone, class_id) VALUES (?, ?, ?, ?, ?)")
-        .run(id, last_name, first_name, phone, class_id);
+        .run(String(id), last_name ?? '', first_name ?? '', phone ?? '', class_id ?? null);
       res.status(201).json({ success: true });
     } catch (error: any) {
       if (error.code === 'SQLITE_CONSTRAINT_PRIMARYKEY') {
@@ -133,11 +133,17 @@ async function startServer() {
     const { id } = req.params;
     const { last_name, first_name, phone, class_id } = req.body;
     try {
-      const result = db.prepare("UPDATE students SET last_name = ?, first_name = ?, phone = ?, class_id = ? WHERE id = ?")
-        .run(last_name, first_name, phone, class_id, id);
-      if (result.changes === 0) {
+      const existing = db.prepare("SELECT * FROM students WHERE id = ?").get(id) as any;
+      if (!existing) {
         return res.status(404).json({ error: "תלמיד לא נמצא במערכת" });
       }
+      const updatedLastName = last_name !== undefined && last_name !== '' ? last_name : existing.last_name;
+      const updatedFirstName = first_name !== undefined && first_name !== '' ? first_name : existing.first_name;
+      const updatedPhone = phone !== undefined ? phone : existing.phone;
+      const updatedClassId = class_id !== undefined && class_id !== null ? class_id : existing.class_id;
+
+      db.prepare("UPDATE students SET last_name = ?, first_name = ?, phone = ?, class_id = ? WHERE id = ?")
+        .run(updatedLastName, updatedFirstName, updatedPhone, updatedClassId, id);
       res.json({ success: true });
     } catch (error: any) {
       res.status(400).json({ error: "שגיאה בעדכון פרטי התלמיד: " + error.message });
